@@ -4,12 +4,13 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-const port = 3000;
+// ✅ CHANGE 1: Use environment variable for port (required for cloud hosting)
+const port = process.env.PORT || 3000;
 
-// MongoDB connection
-const uri = 'mongodb://localhost:27017';
+// ✅ CHANGE 2: Use environment variable for MongoDB URI
+const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
 const client = new MongoClient(uri);
-const dbName = 'myapp';
+const dbName = process.env.DB_NAME || 'myapp';
 
 // Middleware
 app.use(cors());
@@ -21,6 +22,8 @@ async function connectToMongoDB() {
     try {
         await client.connect();
         console.log('✅ Connected to MongoDB successfully');
+        console.log('📍 Database:', dbName);
+        console.log('🌐 MongoDB URI:', uri.includes('localhost') ? 'Local MongoDB' : 'Cloud MongoDB');
         return true;
     } catch (error) {
         console.error('❌ MongoDB connection error:', error);
@@ -34,9 +37,18 @@ async function connectToMongoDB() {
 app.get('/api/status', async (req, res) => {
     try {
         await client.db(dbName).admin().ping();
-        res.json({ connected: true, message: 'MongoDB connection active' });
+        res.json({ 
+            connected: true, 
+            message: 'MongoDB connection active',
+            environment: process.env.NODE_ENV || 'development',
+            database: dbName
+        });
     } catch (error) {
-        res.json({ connected: false, message: 'MongoDB connection failed' });
+        res.json({ 
+            connected: false, 
+            message: 'MongoDB connection failed',
+            error: error.message 
+        });
     }
 });
 
@@ -219,20 +231,30 @@ app.get('/pets', (req, res) => {
     res.sendFile(path.join(__dirname, 'pets.html'));
 });
 
+// ✅ CHANGE 3: Add health check endpoint (helpful for cloud hosting)
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
 // Start server
 async function startServer() {
     const connected = await connectToMongoDB();
     
-    app.listen(port, () => {
-        console.log(`🚀 Server running at http://localhost:${port}`);
+    app.listen(port, '0.0.0.0', () => {
+        console.log(`🚀 Server running on port ${port}`);
+        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
         if (connected) {
             console.log('📊 MongoDB connected - Ready to save data!');
         } else {
             console.log('⚠️  MongoDB not connected - Check your MongoDB service');
         }
         console.log('\n📝 Available pages:');
-        console.log('   👥 Users: http://localhost:3000');
-        console.log('   🐾 Pets:  http://localhost:3000/pets');
+        console.log('   👥 Users: /');
+        console.log('   🐾 Pets:  /pets');
         console.log('\n📊 API Endpoints:');
         console.log('   GET    /api/users - Get all users');
         console.log('   POST   /api/users - Add new user');
@@ -241,6 +263,7 @@ async function startServer() {
         console.log('   POST   /api/pets - Add new pet');
         console.log('   DELETE /api/pets/:id - Delete pet');
         console.log('   GET    /api/status - Check MongoDB status');
+        console.log('   GET    /health - Health check');
     });
 }
 
@@ -249,6 +272,17 @@ process.on('SIGINT', async () => {
     console.log('\n🛑 Shutting down server...');
     await client.close();
     process.exit(0);
+});
+
+// ✅ CHANGE 4: Handle uncaught exceptions (good for production)
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
 });
 
 startServer();
